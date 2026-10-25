@@ -1,0 +1,143 @@
+
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COLREG Assist Türkiye</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+body{margin:0;font-family:Arial,sans-serif;background:#0b1722;color:#f1f5f9}
+header{padding:18px;background:#12283a;border-bottom:2px solid #23b6a4}
+h1{margin:0;font-size:23px}
+header p{margin:7px 0 0;color:#b8cbd8}
+main{padding:14px;max-width:900px;margin:auto}
+.card{background:#142738;border:1px solid #294456;border-radius:12px;padding:14px;margin-bottom:13px}
+button{background:#13a895;color:#06251f;border:0;border-radius:8px;padding:12px;font-weight:bold;margin:4px 2px}
+input,select{background:#071521;color:white;border:1px solid #456174;padding:11px;border-radius:7px;max-width:100%;box-sizing:border-box}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+#map{height:390px;border-radius:10px}
+.small{font-size:13px;color:#b8cbd8;line-height:1.5}
+.warning{border-left:4px solid #f4b942}
+h2{font-size:18px;margin-top:0}
+#status{color:#69e2ce}
+</style>
+</head>
+<body>
+<header>
+<h1>⚓ COLREG Assist</h1>
+<p>Türkiye denizleri • Seyir eğitim ve karar destek aracı</p>
+</header>
+<main>
+<div class="card warning">
+<strong>⚠️ Güvenlik uyarısı</strong>
+<p class="small">Bu uygulama yalnızca eğitim ve yardımcı bilgilendirme içindir. COLREG, gözcülük, radar/ECDIS ve kaptan talimatlarının yerine geçmez. Gerçek seyirde tek başına kullanmayın.</p>
+</div>
+
+<div class="card">
+<h2>🗺️ Türkiye deniz haritası</h2>
+<div id="map"></div>
+<p id="status" class="small">Konum bekleniyor. GPS kullanabilir veya koordinat girebilirsiniz.</p>
+<div class="row">
+<button onclick="locate()">📍 Telefon GPS konumum</button>
+<select id="sea" onchange="goSea()">
+<option value="">Deniz seç</option>
+<option value="41.2,29.0,6">Marmara Denizi</option>
+<option value="42.0,34.0,5">Karadeniz</option>
+<option value="38.5,26.5,6">Ege Denizi</option>
+<option value="36.2,32.5,6">Akdeniz</option>
+</select>
+</div>
+<p class="small">Manuel gemi konumu, WGS-84 ondalık derece:</p>
+<div class="row">
+<label>Enlem <input id="lat" type="number" step="0.000001" placeholder="41.0082"></label>
+<label>Boylam <input id="lon" type="number" step="0.000001" placeholder="28.9784"></label>
+<button onclick="setManual()">Konumu göster</button>
+</div>
+</div>
+
+<div class="card">
+<h2>🚢 AIS hedefleri</h2>
+<p class="small">Bu sürüm canlı AIS hedefi almıyor. Haritada hedef görünmemesi çevrede gemi olmadığı anlamına gelmez. Gerçek AIS için güvenilir veri sağlayıcısı ve çalışan bir bağlantı gerekir.</p>
+</div>
+
+<div class="card">
+<h2>📘 COLREG hızlı hatırlatma</h2>
+<select id="rule" onchange="showRule()">
+<option value="lookout">Kural 5 • Gözcülük</option>
+<option value="safe">Kural 6 • Emniyetli hız</option>
+<option value="risk">Kural 7 • Çatışma riski</option>
+<option value="action">Kural 8 • Çatışmayı önleme</option>
+<option value="head">Kural 14 • Pruva pruvaya</option>
+<option value="cross">Kural 15 • Aykırı geçiş</option>
+<option value="overtake">Kural 13 • Yetişme</option>
+<option value="narrow">Kural 9 • Dar kanal</option>
+<option value="visibility">Kural 19 • Kısıtlı görüş</option>
+</select>
+<p id="ruletext"></p>
+</div>
+
+<div class="card">
+<h2>ℹ️ Kullanım notu</h2>
+<p class="small">Harita internet bağlantısı gerektirir. GPS için tarayıcı konum izni gerekir. Koordinatlar WGS-84 ondalık derece formatındadır. Uygulama resmi ECDIS veya onaylı seyir sistemi değildir.</p>
+</div>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map=L.map('map').setView([38.8,31.5],5);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+ maxZoom:18,attribution:'© OpenStreetMap contributors'
+}).addTo(map);
+let ownMarker=null;
+
+function mark(lat,lon,label){
+ if(!Number.isFinite(lat)||!Number.isFinite(lon)||lat < -90||lat>90||lon < -180||lon>180){
+  alert('Geçerli enlem ve boylam girin.');return;
+ }
+ if(ownMarker)map.removeLayer(ownMarker);
+ ownMarker=L.marker([lat,lon]).addTo(map).bindPopup(label).openPopup();
+ map.setView([lat,lon],9);
+ document.getElementById('lat').value=lat.toFixed(6);
+ document.getElementById('lon').value=lon.toFixed(6);
+}
+function locate(){
+ if(!navigator.geolocation){
+  document.getElementById('status').textContent='Tarayıcı GPS konumunu desteklemiyor.';return;
+ }
+ document.getElementById('status').textContent='Konum alınıyor…';
+ navigator.geolocation.getCurrentPosition(p=>{
+  mark(p.coords.latitude,p.coords.longitude,'Kendi gemi konumum');
+  document.getElementById('status').textContent='Telefon konumu alındı. Yaklaşık doğruluk: '+Math.round(p.coords.accuracy)+' m.';
+ },()=>{
+  document.getElementById('status').textContent='Konum alınamadı. Tarayıcı iznini kontrol edin veya koordinatları elle girin.';
+ },{enableHighAccuracy:true,timeout:12000});
+}
+function setManual(){
+ mark(Number(document.getElementById('lat').value),Number(document.getElementById('lon').value),'Manuel gemi konumu');
+ document.getElementById('status').textContent='Manuel konum haritada işaretlendi.';
+}
+function goSea(){
+ const v=document.getElementById('sea').value;
+ if(!v)return;
+ const a=v.split(',').map(Number);
+ map.setView([a[0],a[1]],a[2]);
+}
+const rules={
+lookout:'Kural 5: Görme, işitme ve mevcut tüm uygun araçlarla her zaman etkin gözcülük yapılmalıdır.',
+safe:'Kural 6: Görüş, trafik yoğunluğu, geminin manevra kabiliyeti, hava ve deniz koşulları dikkate alınarak emniyetli hız belirlenmelidir.',
+risk:'Kural 7: Çatışma riskini belirlemek için mevcut tüm uygun araçlar kullanılmalıdır. Şüphe varsa risk var kabul edilmelidir.',
+action:'Kural 8: Çatışmayı önleme hareketi erken, belirgin ve etkin olmalı; emniyetli geçiş sağlandığı kontrol edilmelidir.',
+head:'Kural 14: İki makineyle yürütülen gemi pruva pruvaya karşılaştığında, kuralın şartları geçerliyse her ikisi de iskeleye dönerek diğerinin iskele tarafından geçmesini sağlar.',
+cross:'Kural 15: Aykırı geçişte, diğer gemiyi kendi sancak tarafında gören gemi yolundan çıkmalıdır ve mümkünse diğer geminin pruvasından geçmekten kaçınmalıdır.',
+overtake:'Kural 13: Yetişen gemi diğer geminin yolundan çıkmalıdır. Şüphe varsa yetişme durumu kabul edilmelidir.',
+narrow:'Kural 9: Dar kanalda seyreden gemi, emniyetli ve uygulanabilir olduğu ölçüde kanalın sancak tarafındaki dış sınırına yakın seyretmelidir.',
+visibility:'Kural 19: Kısıtlı görüşte emniyetli hız, makine hazırlığı ve radar kullanımı önemlidir. Çatışma riski değerlendirilerek uygun hareket yapılmalıdır.'
+};
+function showRule(){
+ document.getElementById('ruletext').textContent=rules[document.getElementById('rule').value];
+}
+showRule();
+</script>
+</body>
+</html>
