@@ -21,25 +21,28 @@ input,select{background:#071521;color:white;border:1px solid #456174;padding:11p
 .warning{border-left:4px solid #f4b942}
 h2{font-size:18px;margin-top:0}
 #status{color:#69e2ce}
+#targetInfo{white-space:pre-line}
+a{color:#69e2ce}
 </style>
 </head>
 <body>
 <header>
 <h1>⚓ COLREG Assist</h1>
-<p>Türkiye denizleri • Seyir eğitim ve karar destek aracı</p>
+<p>Türkiye denizleri • AIS • CPA/TCPA • COLREG</p>
 </header>
 <main>
 <div class="card warning">
 <strong>⚠️ Güvenlik uyarısı</strong>
-<p class="small">Bu uygulama yalnızca eğitim ve yardımcı bilgilendirme içindir. COLREG, gözcülük, radar/ECDIS ve kaptan talimatlarının yerine geçmez. Gerçek seyirde tek başına kullanmayın.</p>
+<p class="small">Bu uygulama eğitim ve yardımcı bilgilendirme içindir. AIS verileri gecikmeli, eksik veya hatalı olabilir. CPA/TCPA ve COLREG sonuçları yaklaşık tahmindir. Gerçek seyirde COLREG, gözcülük, radar/ECDIS, kaptan talimatları ve resmî seyir usullerinin yerine geçmez. Tek başına seyir kararı vermek için kullanmayın.</p>
 </div>
 
 <div class="card">
 <h2>🗺️ Türkiye deniz haritası</h2>
 <div id="map"></div>
-<p id="status" class="small">Konum bekleniyor. GPS kullanabilir veya koordinat girebilirsiniz.</p>
+<p id="status" class="small">AIS konumu bekleniyor...</p>
 <div class="row">
 <button onclick="locate()">📍 Telefon GPS konumum</button>
+<button onclick="centerOwn()">🚢 CHEM PREMIER'i bul</button>
 <select id="sea" onchange="goSea()">
 <option value="">Deniz seç</option>
 <option value="41.2,29.0,6">Marmara Denizi</option>
@@ -48,7 +51,7 @@ h2{font-size:18px;margin-top:0}
 <option value="36.2,32.5,6">Akdeniz</option>
 </select>
 </div>
-<p class="small">Manuel gemi konumu, WGS-84 ondalık derece:</p>
+<p class="small">Manuel WGS-84 konumu:</p>
 <div class="row">
 <label>Enlem <input id="lat" type="number" step="0.000001" placeholder="41.0082"></label>
 <label>Boylam <input id="lon" type="number" step="0.000001" placeholder="28.9784"></label>
@@ -56,19 +59,23 @@ h2{font-size:18px;margin-top:0}
 </div>
 </div>
 
-
 <div class="card">
-  <h2>🚢 Canlı AIS hedefleri</h2>
-  <p id="aisStatus" class="small">AIS verileri bekleniyor...</p>
-  <button onclick="refreshAIS()">🔄 AIS hedeflerini yenile</button>
-  <label class="small">
-    <input type="checkbox" id="aisAuto" checked>
-    30 saniyede bir otomatik yenile
-  </label>
-  <p class="small">Veri kaynağı: <a href="https://openwaters.io/ais/" target="_blank">Open Waters AIS</a></p>
-  <p class="small">⚠️ AIS verileri gecikmeli veya eksik olabilir. Seyir emniyeti için radar, ECDIS ve resmî seyir usullerinin yerine kullanılamaz.</p>
+<h2>🚢 Canlı AIS hedefleri</h2>
+<p id="aisStatus" class="small">AIS verileri yükleniyor...</p>
+<button onclick="refreshAIS()">🔄 AIS hedeflerini yenile</button>
+<label class="small">
+<input type="checkbox" id="aisAuto" checked>
+30 saniyede bir yenile
+</label>
+<p class="small">Ana gemi: <strong>CHEM PREMIER</strong></p>
+<p class="small">MMSI: <strong>271050280</strong></p>
+<p class="small">Veri: <a href="https://openwaters.io/ais/" target="_blank" rel="noopener">Open Waters AIS</a></p>
 </div>
 
+<div class="card">
+<h2>🎯 Hedef analizi • CPA / TCPA / COLREG</h2>
+<p id="targetInfo" class="small">Analiz için haritadaki bir AIS hedefine dokun.</p>
+</div>
 
 <div class="card">
 <h2>📘 COLREG hızlı hatırlatma</h2>
@@ -88,134 +95,254 @@ h2{font-size:18px;margin-top:0}
 
 <div class="card">
 <h2>ℹ️ Kullanım notu</h2>
-<p class="small">Harita internet bağlantısı gerektirir. GPS için tarayıcı konum izni gerekir. Koordinatlar WGS-84 ondalık derece formatındadır. Uygulama resmi ECDIS veya onaylı seyir sistemi değildir.</p>
+<p class="small">Harita ve AIS için internet gerekir. Telefon GPS'i için konum izni gerekir. Uygulama resmî ECDIS veya onaylı seyir sistemi değildir.</p>
 </div>
 </main>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const map=L.map('map').setView([38.8,31.5],5);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
- maxZoom:18,attribution:'© OpenStreetMap contributors'
+const OWN_MMSI = "271050280";
+
+const map = L.map("map").setView([41,32.5],5);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+  maxZoom:18,
+  attribution:"© OpenStreetMap contributors"
 }).addTo(map);
-let ownMarker=null;
 
-function mark(lat,lon,label){
- if(!Number.isFinite(lat)||!Number.isFinite(lon)||lat < -90||lat>90||lon < -180||lon>180){
-  alert('Geçerli enlem ve boylam girin.');return;
- }
- if(ownMarker)map.removeLayer(ownMarker);
- ownMarker=L.marker([lat,lon]).addTo(map).bindPopup(label).openPopup();
- map.setView([lat,lon],9);
- document.getElementById('lat').value=lat.toFixed(6);
- document.getElementById('lon').value=lon.toFixed(6);
-}
-function locate(){
- if(!navigator.geolocation){
-  document.getElementById('status').textContent='Tarayıcı GPS konumunu desteklemiyor.';return;
- }
- document.getElementById('status').textContent='Konum alınıyor…';
- navigator.geolocation.getCurrentPosition(p=>{
-  mark(p.coords.latitude,p.coords.longitude,'Kendi gemi konumum');
-  document.getElementById('status').textContent='Telefon konumu alındı. Yaklaşık doğruluk: '+Math.round(p.coords.accuracy)+' m.';
- },()=>{
-  document.getElementById('status').textContent='Konum alınamadı. Tarayıcı iznini kontrol edin veya koordinatları elle girin.';
- },{enableHighAccuracy:true,timeout:12000});
-}
-function setManual(){
- mark(Number(document.getElementById('lat').value),Number(document.getElementById('lon').value),'Manuel gemi konumu');
- document.getElementById('status').textContent='Manuel konum haritada işaretlendi.';
-}
-function goSea(){
- const v=document.getElementById('sea').value;
- if(!v)return;
- const a=v.split(',').map(Number);
- map.setView([a[0],a[1]],a[2]);
-}
-
-const aisLayer = L.layerGroup().addTo(map);
+let ownMarker = null;
+let aisLayer = L.layerGroup().addTo(map);
+let ownAIS = null;
+let centeredOnOwn = false;
 let aisTimer = null;
 
-async function refreshAIS() {
-  const status = document.getElementById("aisStatus");
-  status.textContent = "AIS hedefleri yükleniyor...";
+function validNum(v){
+  return v !== null && v !== undefined && v !== "" &&
+         Number.isFinite(Number(v));
+}
+function norm360(d){return ((d%360)+360)%360;}
+function signedAngle(d){return ((d+540)%360)-180;}
 
-  try {
-    const b = map.getBounds();
-    const pad = 2;
-    const minLat = Math.max(-80, b.getSouth() - pad);
-    const maxLat = Math.min(80, b.getNorth() + pad);
-    const minLon = Math.max(-180, b.getWest() - pad);
-    const maxLon = Math.min(180, b.getEast() + pad);
-    const bbox = [minLat, minLon, maxLat, maxLon].join(",");
+function locate(){
+  if(!navigator.geolocation){
+    document.getElementById("status").textContent="GPS desteklenmiyor.";
+    return;
+  }
+  document.getElementById("status").textContent="GPS konumu alınıyor...";
+  navigator.geolocation.getCurrentPosition(p=>{
+    mark(p.coords.latitude,p.coords.longitude,"Telefon GPS konumu");
+    document.getElementById("status").textContent=
+      "GPS alındı. Yaklaşık doğruluk: "+Math.round(p.coords.accuracy)+" m.";
+  },()=>{
+    document.getElementById("status").textContent=
+      "GPS alınamadı. Tarayıcı konum iznini kontrol edin.";
+  },{enableHighAccuracy:true,timeout:12000});
+}
 
-    const url = "https://ais.openwaters.io/v1/vessels?bbox=" +
-      encodeURIComponent(bbox) +
-      "&kind=vessel&max_age_moving=30m";
+function mark(lat,lon,label){
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)||
+     lat < -90||lat > 90||lon < -180||lon > 180){
+    alert("Geçerli enlem ve boylam girin.");
+    return;
+  }
+  if(ownMarker)map.removeLayer(ownMarker);
+  ownMarker=L.marker([lat,lon]).addTo(map).bindPopup(label).openPopup();
+  map.setView([lat,lon],9);
+  document.getElementById("lat").value=lat.toFixed(6);
+  document.getElementById("lon").value=lon.toFixed(6);
+}
 
-    const response = await fetch(url);
-    if (!response.ok) throw new Error("AIS servisi yanıt vermedi");
+function setManual(){
+  mark(Number(document.getElementById("lat").value),
+       Number(document.getElementById("lon").value),
+       "Manuel gemi konumu");
+}
+function goSea(){
+  const v=document.getElementById("sea").value;
+  if(!v)return;
+  const a=v.split(",").map(Number);
+  map.setView([a[0],a[1]],a[2]);
+}
+function centerOwn(){
+  if(ownAIS){
+    centeredOnOwn=true;
+    map.setView([ownAIS.lat,ownAIS.lon],9);
+    if(ownMarker)ownMarker.openPopup();
+  }else{
+    document.getElementById("status").textContent=
+      "CHEM PREMIER henüz AIS verisinde bulunamadı. Geminin bulunduğu denizi seçip AIS'i yenileyin.";
+  }
+}
 
-    const data = await response.json();
+function cpaFor(t){
+  if(!ownAIS||!validNum(ownAIS.sog)||!validNum(ownAIS.cog)||
+     !validNum(t.sog)||!validNum(t.cog))return null;
+
+  const meanLat=(ownAIS.lat+t.lat)/2*Math.PI/180;
+  const rx=(t.lon-ownAIS.lon)*60*Math.cos(meanLat);
+  const ry=(t.lat-ownAIS.lat)*60;
+  const oc=Number(ownAIS.cog)*Math.PI/180;
+  const tc=Number(t.cog)*Math.PI/180;
+
+  const vx=Number(t.sog)*Math.sin(tc)-Number(ownAIS.sog)*Math.sin(oc);
+  const vy=Number(t.sog)*Math.cos(tc)-Number(ownAIS.sog)*Math.cos(oc);
+  const vv=vx*vx+vy*vy;
+  const hours=vv<0.0001?0:-(rx*vx+ry*vy)/vv;
+  const cpa=Math.hypot(rx+vx*hours,ry+vy*hours);
+  const bearing=norm360(Math.atan2(rx,ry)*180/Math.PI);
+  const rel=signedAngle(bearing-Number(ownAIS.cog));
+  const courseDiff=Math.abs(signedAngle(Number(t.cog)-Number(ownAIS.cog)));
+
+  let situation="Durum kesin sınıflandırılamıyor. Görsel/radar değerlendirmesi gerekir.";
+  if(courseDiff>=150&&Math.abs(rel)<=10){
+    situation="Olası pruva pruvaya karşılaşma. Kural 14 şartlarını doğrulayın.";
+  }else if(Math.abs(rel)<112.5){
+    situation=rel>0
+      ?"Hedef sancak tarafında. Olası aykırı geçiş; Kural 15 ve 16 şartlarını değerlendirin."
+      :"Hedef iskele tarafında. Geçiş durumunu doğrulayın; otomatik yol verme sonucu çıkarılamaz.";
+  }else{
+    situation="Hedef kıç sektörde. Yetişme ihtimali olabilir; Kural 13 şartlarını doğrulayın.";
+  }
+  return {cpa,tcpa:hours*60,bearing,rel,situation};
+}
+
+function showTarget(t){
+  const el=document.getElementById("targetInfo");
+  const lines=[
+    (t.name||"İsimsiz gemi")+" • MMSI "+(t.mmsi||"bilinmiyor"),
+    "Konum: "+t.lat.toFixed(5)+", "+t.lon.toFixed(5),
+    "Sürat: "+(validNum(t.sog)?Number(t.sog).toFixed(1)+" kn":"bilinmiyor"),
+    "COG: "+(validNum(t.cog)?Number(t.cog).toFixed(1)+"°":"bilinmiyor")
+  ];
+  const d=cpaFor(t);
+  if(d){
+    lines.push("CPA (yaklaşık): "+d.cpa.toFixed(2)+" NM");
+    lines.push("TCPA (yaklaşık): "+
+      (d.tcpa<0?Math.abs(d.tcpa).toFixed(1)+" dakika önce":d.tcpa.toFixed(1)+" dakika"));
+    lines.push("Hedef kerterizi: "+d.bearing.toFixed(1)+"°");
+    lines.push("Göreceli kerteriz: "+d.rel.toFixed(1)+"°");
+    lines.push("Olası COLREG ilişkisi: "+d.situation);
+    if(d.tcpa<0)lines.push("TCPA negatif: hesaplanan en yakın geçiş geçmiştedir.");
+  }else{
+    lines.push("CPA/TCPA hesaplanamadı. Kendi geminin veya hedefin AIS sürat/rota verisi eksik.");
+  }
+  el.textContent=lines.join("\n");
+}
+
+function popup(t,isOwn){
+  const box=document.createElement("div");
+  const title=document.createElement("strong");
+  title.textContent=isOwn?"CHEM PREMIER • KENDİ GEMİM":(t.name||"İsimsiz gemi");
+  const details=document.createElement("p");
+  details.textContent="MMSI: "+(t.mmsi||"bilinmiyor")+
+    "\nSürat: "+(validNum(t.sog)?t.sog+" kn":"bilinmiyor")+
+    "\nRota: "+(validNum(t.cog)?t.cog+"°":"bilinmiyor");
+  details.style.whiteSpace="pre-line";
+  box.appendChild(title);
+  box.appendChild(details);
+  if(!isOwn){
+    const btn=document.createElement("button");
+    btn.textContent="CPA / TCPA / COLREG analizi";
+    btn.onclick=()=>showTarget(t);
+    box.appendChild(btn);
+  }
+  return box;
+}
+
+async function refreshAIS(){
+  const status=document.getElementById("aisStatus");
+  status.textContent="AIS hedefleri yükleniyor...";
+  try{
+    const c=map.getCenter();
+    const minLat=Math.max(-80,c.lat-4);
+    const maxLat=Math.min(80,c.lat+4);
+    const minLon=Math.max(-180,c.lng-4);
+    const maxLon=Math.min(180,c.lng+4);
+    const bbox=[minLat,minLon,maxLat,maxLon].join(",");
+    const url="https://ais.openwaters.io/v1/vessels?bbox="+
+      encodeURIComponent(bbox)+"&kind=vessel&max_age_moving=30m";
+    const response=await fetch(url);
+    if(!response.ok)throw new Error("AIS servisi yanıt vermedi");
+    const data=await response.json();
     aisLayer.clearLayers();
 
-    const vessels = data.features || [];
-    vessels.forEach(v => {
-      const p = v.properties || {};
-      const c = v.geometry && v.geometry.coordinates;
-      if (!c || c.length < 2) return;
+    const vessels=(data.features||[]).map(v=>{
+      const p=v.properties||{};
+      const co=v.geometry&&v.geometry.coordinates;
+      if(!co||co.length<2)return null;
+      return {
+        mmsi:String(p.mmsi||""),
+        name:p.name||"",
+        lon:Number(co[0]),lat:Number(co[1]),
+        sog:p.sog,cog:p.cog
+      };
+    }).filter(v=>v&&Number.isFinite(v.lat)&&Number.isFinite(v.lon));
 
-      const marker = L.circleMarker([c[1], c[0]], {
-        radius: 6,
-        color: "#ffb020",
-        fillColor: "#ffb020",
-        fillOpacity: 0.9
+    ownAIS=vessels.find(v=>v.mmsi===OWN_MMSI)||null;
+
+    if(ownAIS){
+      if(!centeredOnOwn){
+        centeredOnOwn=true;
+        map.setView([ownAIS.lat,ownAIS.lon],9);
+      }
+      if(ownMarker)map.removeLayer(ownMarker);
+      ownMarker=L.circleMarker([ownAIS.lat,ownAIS.lon],{
+        radius:9,color:"#5cff9d",fillColor:"#0bbf72",
+        fillOpacity:1,weight:3
+      }).addTo(map).bindPopup(popup(ownAIS,true));
+      document.getElementById("status").textContent=
+        "CHEM PREMIER bulundu • MMSI "+OWN_MMSI;
+    }else{
+      document.getElementById("status").textContent=
+        "CHEM PREMIER bu sorguda bulunamadı. Geminin bulunduğu denizi seçip yenileyin.";
+    }
+
+    vessels.forEach(t=>{
+      if(t.mmsi===OWN_MMSI)return;
+      const marker=L.circleMarker([t.lat,t.lon],{
+        radius:6,color:"#ffb020",fillColor:"#ffb020",fillOpacity:0.9
       });
-
-      marker.bindPopup(
-        "<b>" + (p.name || "İsimsiz gemi") + "</b><br>" +
-        "MMSI: " + (p.mmsi || "Bilinmiyor") + "<br>" +
-        "Sürat: " + (p.sog ?? "Bilinmiyor") + " kn<br>" +
-        "Baş: " + (p.cog ?? "Bilinmiyor") + "°"
-      );
+      marker.bindPopup(popup(t,false));
+      marker.on("click",()=>showTarget(t));
       aisLayer.addLayer(marker);
     });
 
-    status.textContent = "Haritadaki AIS hedefleri: " + vessels.length;
-  } catch (error) {
-    status.textContent =
-      "AIS verisi alınamadı. İnternet bağlantısını veya veri servisini kontrol et.";
+    status.textContent="Haritadaki AIS hedefleri: "+vessels.length+
+      (ownAIS?" • CHEM PREMIER bulundu":" • CHEM PREMIER bulunamadı");
+    if(!ownAIS){
+      document.getElementById("targetInfo").textContent=
+        "Kendi geminin MMSI'si bu AIS sorgusunda bulunamadı. Kendi AIS konumu alınmadan CPA/TCPA hesaplanamaz.";
+    }
+  }catch(e){
+    status.textContent="AIS verisi alınamadı. İnternet bağlantısını veya veri servisini kontrol edin.";
   }
 }
 
-function startAISTimer() {
-  if (aisTimer) clearInterval(aisTimer);
-  aisTimer = null;
-
-  const checkbox = document.getElementById("aisAuto");
-  if (checkbox && checkbox.checked) {
-    aisTimer = setInterval(refreshAIS, 30000);
+function startAISTimer(){
+  if(aisTimer)clearInterval(aisTimer);
+  aisTimer=null;
+  if(document.getElementById("aisAuto").checked){
+    aisTimer=setInterval(refreshAIS,30000);
   }
 }
-
-document.getElementById("aisAuto").addEventListener("change", startAISTimer);
-map.on("moveend", refreshAIS);
+document.getElementById("aisAuto").addEventListener("change",startAISTimer);
+map.on("moveend",()=>{if(centeredOnOwn)refreshAIS();});
 refreshAIS();
 startAISTimer();
 
- const rules={
-lookout:'Kural 5: Görme, işitme ve mevcut tüm uygun araçlarla her zaman etkin gözcülük yapılmalıdır.',
-safe:'Kural 6: Görüş, trafik yoğunluğu, geminin manevra kabiliyeti, hava ve deniz koşulları dikkate alınarak emniyetli hız belirlenmelidir.',
-risk:'Kural 7: Çatışma riskini belirlemek için mevcut tüm uygun araçlar kullanılmalıdır. Şüphe varsa risk var kabul edilmelidir.',
-action:'Kural 8: Çatışmayı önleme hareketi erken, belirgin ve etkin olmalı; emniyetli geçiş sağlandığı kontrol edilmelidir.',
-head:'Kural 14: İki makineyle yürütülen gemi pruva pruvaya karşılaştığında, kuralın şartları geçerliyse her ikisi de iskeleye dönerek diğerinin iskele tarafından geçmesini sağlar.',
-cross:'Kural 15: Aykırı geçişte, diğer gemiyi kendi sancak tarafında gören gemi yolundan çıkmalıdır ve mümkünse diğer geminin pruvasından geçmekten kaçınmalıdır.',
-overtake:'Kural 13: Yetişen gemi diğer geminin yolundan çıkmalıdır. Şüphe varsa yetişme durumu kabul edilmelidir.',
-narrow:'Kural 9: Dar kanalda seyreden gemi, emniyetli ve uygulanabilir olduğu ölçüde kanalın sancak tarafındaki dış sınırına yakın seyretmelidir.',
-visibility:'Kural 19: Kısıtlı görüşte emniyetli hız, makine hazırlığı ve radar kullanımı önemlidir. Çatışma riski değerlendirilerek uygun hareket yapılmalıdır.'
+const rules={
+lookout:"Kural 5: Görme, işitme ve mevcut tüm uygun araçlarla etkin gözcülük yapılmalıdır.",
+safe:"Kural 6: Görüş, trafik yoğunluğu, manevra kabiliyeti ve hava/deniz koşulları dikkate alınarak emniyetli hız belirlenmelidir.",
+risk:"Kural 7: Çatışma riski tüm uygun araçlarla değerlendirilmelidir. Şüphe varsa risk var kabul edilmelidir.",
+action:"Kural 8: Çatışmayı önleme hareketi erken, belirgin ve etkin olmalı; sonuç kontrol edilmelidir.",
+head:"Kural 14: Pruva pruvaya karşılaşmada, şartlar geçerliyse her iki gemi iskeleye dönerek diğerinin iskele tarafından geçmesini sağlar.",
+cross:"Kural 15: Aykırı geçişte diğer gemiyi sancak tarafında gören gemi, kuralın şartları geçerliyse yolundan çıkmalıdır.",
+overtake:"Kural 13: Yetişen gemi diğer geminin yolundan çıkmalıdır. Şüphe varsa yetişme durumu kabul edilmelidir.",
+narrow:"Kural 9: Dar kanalda gemi, emniyetli ve uygulanabilir olduğu ölçüde kanalın sancak tarafındaki dış sınırına yakın seyretmelidir.",
+visibility:"Kural 19: Kısıtlı görüşte emniyetli hız, makine hazırlığı ve radar kullanımı önemlidir."
 };
 function showRule(){
- document.getElementById('ruletext').textContent=rules[document.getElementById('rule').value];
+  document.getElementById("ruletext").textContent=
+    rules[document.getElementById("rule").value];
 }
 showRule();
 </script>
