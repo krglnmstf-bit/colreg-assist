@@ -56,10 +56,19 @@ h2{font-size:18px;margin-top:0}
 </div>
 </div>
 
+
 <div class="card">
-<h2>🚢 AIS hedefleri</h2>
-<p class="small">Bu sürüm canlı AIS hedefi almıyor. Haritada hedef görünmemesi çevrede gemi olmadığı anlamına gelmez. Gerçek AIS için güvenilir veri sağlayıcısı ve çalışan bir bağlantı gerekir.</p>
+  <h2>🚢 Canlı AIS hedefleri</h2>
+  <p id="aisStatus" class="small">AIS verileri bekleniyor...</p>
+  <button onclick="refreshAIS()">🔄 AIS hedeflerini yenile</button>
+  <label class="small">
+    <input type="checkbox" id="aisAuto" checked>
+    30 saniyede bir otomatik yenile
+  </label>
+  <p class="small">Veri kaynağı: <a href="https://openwaters.io/ais/" target="_blank">Open Waters AIS</a></p>
+  <p class="small">⚠️ AIS verileri gecikmeli veya eksik olabilir. Seyir emniyeti için radar, ECDIS ve resmî seyir usullerinin yerine kullanılamaz.</p>
 </div>
+
 
 <div class="card">
 <h2>📘 COLREG hızlı hatırlatma</h2>
@@ -123,7 +132,78 @@ function goSea(){
  const a=v.split(',').map(Number);
  map.setView([a[0],a[1]],a[2]);
 }
-const rules={
+
+const aisLayer = L.layerGroup().addTo(map);
+let aisTimer = null;
+
+async function refreshAIS() {
+  const status = document.getElementById("aisStatus");
+  status.textContent = "AIS hedefleri yükleniyor...";
+
+  try {
+    const b = map.getBounds();
+    const pad = 2;
+    const minLat = Math.max(-80, b.getSouth() - pad);
+    const maxLat = Math.min(80, b.getNorth() + pad);
+    const minLon = Math.max(-180, b.getWest() - pad);
+    const maxLon = Math.min(180, b.getEast() + pad);
+    const bbox = [minLat, minLon, maxLat, maxLon].join(",");
+
+    const url = "https://ais.openwaters.io/v1/vessels?bbox=" +
+      encodeURIComponent(bbox) +
+      "&kind=vessel&max_age_moving=30m";
+
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("AIS servisi yanıt vermedi");
+
+    const data = await response.json();
+    aisLayer.clearLayers();
+
+    const vessels = data.features || [];
+    vessels.forEach(v => {
+      const p = v.properties || {};
+      const c = v.geometry && v.geometry.coordinates;
+      if (!c || c.length < 2) return;
+
+      const marker = L.circleMarker([c[1], c[0]], {
+        radius: 6,
+        color: "#ffb020",
+        fillColor: "#ffb020",
+        fillOpacity: 0.9
+      });
+
+      marker.bindPopup(
+        "<b>" + (p.name || "İsimsiz gemi") + "</b><br>" +
+        "MMSI: " + (p.mmsi || "Bilinmiyor") + "<br>" +
+        "Sürat: " + (p.sog ?? "Bilinmiyor") + " kn<br>" +
+        "Baş: " + (p.cog ?? "Bilinmiyor") + "°"
+      );
+      aisLayer.addLayer(marker);
+    });
+
+    status.textContent = "Haritadaki AIS hedefleri: " + vessels.length;
+  } catch (error) {
+    status.textContent =
+      "AIS verisi alınamadı. İnternet bağlantısını veya veri servisini kontrol et.";
+  }
+}
+
+function startAISTimer() {
+  if (aisTimer) clearInterval(aisTimer);
+  aisTimer = null;
+
+  const checkbox = document.getElementById("aisAuto");
+  if (checkbox && checkbox.checked) {
+    aisTimer = setInterval(refreshAIS, 30000);
+  }
+}
+
+document.getElementById("aisAuto").addEventListener("change", startAISTimer);
+map.on("moveend", refreshAIS);
+refreshAIS();
+startAISTimer();
+
+ const rules={
 lookout:'Kural 5: Görme, işitme ve mevcut tüm uygun araçlarla her zaman etkin gözcülük yapılmalıdır.',
 safe:'Kural 6: Görüş, trafik yoğunluğu, geminin manevra kabiliyeti, hava ve deniz koşulları dikkate alınarak emniyetli hız belirlenmelidir.',
 risk:'Kural 7: Çatışma riskini belirlemek için mevcut tüm uygun araçlar kullanılmalıdır. Şüphe varsa risk var kabul edilmelidir.',
